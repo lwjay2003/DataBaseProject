@@ -1,5 +1,5 @@
 import sys
-
+from utils.db_connection import create_connection
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap, QIcon
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QLabel, QLineEdit, \
@@ -15,7 +15,7 @@ class PizzaOrderingApp(QMainWindow):
         # Set background image using style sheet
         self.setStyleSheet("""
                     QMainWindow {
-                        background-image: url('/Users/liaowenjie/PycharmProjects/DataBaseProject/pizza-7423546_1920.png');
+                        background-image: url('/Users/zhousiyao/PycharmProjects/DataBaseProject/pizza-7423546_1920.png');
                         background-repeat: no-repeat;
                         
                         background-position: center;
@@ -31,7 +31,7 @@ class PizzaOrderingApp(QMainWindow):
 
         # Pizza image - Centered at the top
         self.pizza_image = QLabel(self)
-        pixmap = QPixmap('/Users/liaowenjie/PycharmProjects/DataBaseProject/Iconarchive-Fat-Sugar-Food-Pizza.512.png')
+        pixmap = QPixmap('/Users/zhousiyao/PycharmProjects/DataBaseProject/Iconarchive-Fat-Sugar-Food-Pizza.512.png')
         #adjust the size of the image
         pixmap = pixmap.scaled(150, 150, Qt.KeepAspectRatio)
         self.pizza_image.setPixmap(pixmap)
@@ -82,12 +82,63 @@ class PizzaOrderingApp(QMainWindow):
         self.login_widget.setLayout(self.login_layout)
         self.setCentralWidget(self.login_widget)
 
+    # def login(self):
+    #     # Handle user login logic (validate against your database for later)
+    #     self.username = self.username_input.text()
+    #     if self.username:
+    #         # Proceed to pizza selection screen after login
+    #         self.init_my_account_screen()
+
     def login(self):
-        # Handle user login logic (validate against your database for later)
+        # Get the username and password from the input fields
         self.username = self.username_input.text()
-        if self.username:
-            # Proceed to pizza selection screen after login
-            self.init_my_account_screen()
+        self.password = self.password_input.text()
+
+        # Establish a connection to the MySQL database
+        conn = create_connection()
+        if conn:
+            try:
+                # Create a cursor to interact with the database
+                cursor = conn.cursor()
+
+                # Query to validate login credentials and get customer_id
+                query = """
+                    SELECT customer_id FROM users
+                    WHERE username = %s AND password = %s
+                """
+                cursor.execute(query, (self.username, self.password))
+                result = cursor.fetchone()
+
+                # Check if login credentials are correct
+                if result:
+                    self.customer_id = result[0]  # Get the customer_id from the result
+                    self.init_my_account_screen()  # Proceed to the account screen
+                else:
+                    # Display an error message if login fails
+                    error_msg = QMessageBox()
+                    error_msg.setIcon(QMessageBox.Critical)
+                    error_msg.setText("Invalid username or password")
+                    error_msg.setWindowTitle("Login Failed")
+                    error_msg.exec_()
+
+            except Exception as e:
+                # Handle any errors that occur during the database interaction
+                error_msg = QMessageBox()
+                error_msg.setIcon(QMessageBox.Critical)
+                error_msg.setText(f"An error occurred: {e}")
+                error_msg.setWindowTitle("Login Error")
+                error_msg.exec_()
+
+            finally:
+                # Close the database connection
+                conn.close()
+        else:
+            # Display an error if the connection could not be established
+            error_msg = QMessageBox()
+            error_msg.setIcon(QMessageBox.Critical)
+            error_msg.setText("Could not connect to the database. Please try again later.")
+            error_msg.setWindowTitle("Connection Error")
+            error_msg.exec_()
 
     def init_my_account_screen(self):
         # Clear the current screen
@@ -123,7 +174,7 @@ class PizzaOrderingApp(QMainWindow):
         self.my_account_button.setStyleSheet("font-size: 20px; font-weight: bold; font-style: italic; "
                                              "background-color: red; color:white")
         self.my_account_button.setFixedSize(200, 50)
-        #self.my_account_button.clicked.connect(self.show_my_account)
+        self.my_account_button.clicked.connect(self.show_my_account)
         self.my_account_layout.addWidget(self.my_account_button, alignment=Qt.AlignCenter)
 
         self.logout_button = QPushButton('Log Out', self)
@@ -136,6 +187,91 @@ class PizzaOrderingApp(QMainWindow):
         # Set layout for "My Account" screen
         self.my_account_widget.setLayout(self.my_account_layout)
         self.setCentralWidget(self.my_account_widget)
+
+    def show_my_account(self):
+        # Clear the current screen
+        self.clear_screen()
+
+        # Setup "Customer Information" layout
+        self.customer_info_widget = QWidget()
+        self.customer_info_layout = QVBoxLayout()
+
+        # Establish a connection to the database to fetch customer info
+        conn = create_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                # Fetch the customer's details using customer_id
+                query = """
+                    SELECT name, gender, birthday, phone, address, postcode, accumulation
+                    FROM customer
+                    WHERE customer_id = %s
+                """
+                cursor.execute(query, (self.customer_id,))
+                customer_info = cursor.fetchone()
+
+                if customer_info:
+                    # Display customer information on the screen
+                    self.greeting_label = QLabel(f"Account Details for {customer_info[0]}:", self)
+                    self.greeting_label.setAlignment(Qt.AlignLeft)
+                    self.greeting_label.setStyleSheet(
+                        "font-size: 24px; font-weight: bold; color: white; background-color: red; padding: 10px; border-radius: 10px;")
+                    self.customer_info_layout.addWidget(self.greeting_label)
+
+                    # Add widgets to display other customer information with background styling
+                    self.gender_label = QLabel(f"Gender: {customer_info[1]}")
+                    self.gender_label.setStyleSheet(
+                        "font-size: 18px; color: black; background-color: lightyellow; padding: 5px; border-radius: 5px;")
+                    self.customer_info_layout.addWidget(self.gender_label)
+
+                    self.birthday_label = QLabel(f"Birthday: {customer_info[2]}")
+                    self.birthday_label.setStyleSheet(
+                        "font-size: 18px; color: black; background-color: lightyellow; padding: 5px; border-radius: 5px;")
+                    self.customer_info_layout.addWidget(self.birthday_label)
+
+                    self.phone_label = QLabel(f"Phone: {customer_info[3]}")
+                    self.phone_label.setStyleSheet(
+                        "font-size: 18px; color: black; background-color: lightyellow; padding: 5px; border-radius: 5px;")
+                    self.customer_info_layout.addWidget(self.phone_label)
+
+                    self.address_label = QLabel(f"Address: {customer_info[4]}")
+                    self.address_label.setStyleSheet(
+                        "font-size: 18px; color: black; background-color: lightyellow; padding: 5px; border-radius: 5px;")
+                    self.customer_info_layout.addWidget(self.address_label)
+
+                    self.postcode_label = QLabel(f"Postcode: {customer_info[5]}")
+                    self.postcode_label.setStyleSheet(
+                        "font-size: 18px; color: black; background-color: lightyellow; padding: 5px; border-radius: 5px;")
+                    self.customer_info_layout.addWidget(self.postcode_label)
+
+                    # Accumulation Points: Display as "You ordered xx times in the past."
+                    self.accumulation_label = QLabel(f"You ordered {customer_info[6]} times in the past.")
+                    self.accumulation_label.setStyleSheet(
+                        "font-size: 18px; color: black; background-color: lightyellow; padding: 5px; border-radius: 5px;")
+                    self.customer_info_layout.addWidget(self.accumulation_label)
+
+            except Exception as e:
+                # Handle errors during the database interaction
+                error_msg = QMessageBox()
+                error_msg.setIcon(QMessageBox.Critical)
+                error_msg.setText(f"An error occurred: {e}")
+                error_msg.setWindowTitle("Account Info Error")
+                error_msg.exec_()
+
+            finally:
+                conn.close()
+
+        # Add a "Back" button to return to the main menu
+        self.back_button = QPushButton('Back', self)
+        self.back_button.setStyleSheet("font-size: 20px; font-weight: bold; font-style: italic; "
+                                       "background-color: red; color:white; padding: 10px; border-radius: 10px;")
+        self.back_button.setFixedSize(200, 50)
+        self.back_button.clicked.connect(self.init_my_account_screen)  # Connect back to main menu
+        self.customer_info_layout.addWidget(self.back_button, alignment=Qt.AlignCenter)
+
+        # Set layout for "Customer Information" screen
+        self.customer_info_widget.setLayout(self.customer_info_layout)
+        self.setCentralWidget(self.customer_info_widget)
 
     def init_menu_screen(self):
         # Clear current screen
