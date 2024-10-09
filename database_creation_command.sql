@@ -13,7 +13,7 @@ CREATE TABLE ingredient(
 CREATE TABLE pizza_to_ingredient(
 	pizza_id INT NOT NULL,
 	ingredient_id INT NOT NULL,
-	FOREIGN KEY(ppizza_id) REFERENCES pizza(pizza_id),
+	FOREIGN KEY(pizza_id) REFERENCES pizza(pizza_id),
 	FOREIGN KEY(ingredient_id) REFERENCES ingredient(ingredient_id)
 );
 

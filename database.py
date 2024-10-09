@@ -138,21 +138,44 @@ class PizzaDatabase:
     def get_menu_items(self):
         """
         Get a list of all available pizzas and side dishes.
+        Pizzas are priced based on their ingredients.
         """
         try:
-            self.cursor.execute("SELECT pizza_id, name, price FROM pizza")
-            pizzas = [{"id": row[0], "name": row[1], "price": row[2]} for row in self.cursor.fetchall()]
+            # Dictionary to hold the pizzas
+            pizzas = []
 
+            # Fetch pizzas and their ingredients with prices
+            self.cursor.execute("""
+                SELECT p.pizza_id, p.name, i.price
+                FROM pizza p
+                JOIN pizza_to_ingredient pi ON p.pizza_id = pi.pizza_id
+                JOIN ingredient i ON pi.ingredient_id = i.ingredient_id
+            """)
+
+            # Group pizzas by their ID and calculate the total price based on their ingredients
+            pizza_dict = {}
+            for row in self.cursor.fetchall():
+                pizza_id, pizza_name, ingredient_price = row
+                if pizza_id not in pizza_dict:
+                    pizza_dict[pizza_id] = {"id": pizza_id, "name": pizza_name, "price": 0}
+                pizza_dict[pizza_id]["price"] += ingredient_price
+
+            # Convert dictionary to a list of pizzas
+            pizzas = list(pizza_dict.values())
+
+            # Fetch side dishes from the database
             self.cursor.execute("SELECT sidedish_id, name, price FROM sidedish")
             sidedishes = [{"id": row[0], "name": row[1], "price": row[2]} for row in self.cursor.fetchall()]
 
+            # Return pizzas and side dishes as a dictionary
             return {
                 "pizzas": pizzas,
                 "sidedishes": sidedishes
             }
         except Exception as e:
+            # Handle error by printing the exception and returning empty lists
             print(f"Error getting menu items: {e}")
-            return None
+            return {"pizzas": [], "sidedishes": []}
 
     def get_order_time(self, order_id):
         """
