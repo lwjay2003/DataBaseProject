@@ -11,16 +11,36 @@ class PizzaDatabase:
         if self.conn:
             self.conn.close()
 
-    def get_pizza(self, id):
-        self.cursor.execute(
-            f"SELECT pizza.name, ingredient.ingredient_id FROM ingredient JOIN pizza_to_ingredient ON ingredient.ingredient_id = pizza_to_ingredient.ingredient_id JOIN pizza ON pizza.pizza_id = pizza_to_ingredient.pizza_id WHERE pizza.pizza_id = '{id}';")
+    def get_pizza(self, pizza_id):
+        self.cursor.execute("""
+            SELECT pizza.name, ingredient.ingredient_id 
+            FROM ingredient 
+            JOIN pizza_to_ingredient ON ingredient.ingredient_id = pizza_to_ingredient.ingredient_id 
+            JOIN pizza ON pizza.pizza_id = pizza_to_ingredient.pizza_id 
+            WHERE pizza.pizza_id = %s;
+        """, (pizza_id,))
         info = self.cursor.fetchall()
-        return {"name": info[0][0], "ingredients": [p[1] for p in info]}
+        return {
+            "name": info[0][0],
+            "ingredients": [int(p[1]) for p in info]
+        }
 
     def get_ingredient(self, id):
-        self.cursor.execute("SELECT name, category, price FROM ingredient WHERE ingredient_id = '" + str(id) + "';")
-        ingredient = self.cursor.fetchone()
-        return {"name": ingredient[0], "category": ingredient[1], "price": ingredient[2]}
+        """
+        Fetch the ingredient's details from the database, considering 'VEGETABLE' as vegan.
+        """
+        try:
+            self.cursor.execute("SELECT name, category, price FROM ingredient WHERE ingredient_id = %s", (id,))
+            ingredient = self.cursor.fetchone()
+            if ingredient:
+                is_vegan = ingredient[1].upper() == "VEGETABLE"  # Check if the category is VEGETABLE
+                return {"name": ingredient[0], "category": ingredient[1], "price": ingredient[2], "vegan": is_vegan}
+            else:
+                print(f"Warning: Ingredient with ID {id} not found.")
+                return {"name": "Unknown", "category": "Unknown", "price": 0, "vegan": False}  # Default values
+        except Exception as e:
+            print(f"Error fetching ingredient with ID {id}: {e}")
+            return {"name": "Error", "category": "Error", "price": 0, "vegan": False}
 
     def get_side_dish(self, id):
         self.cursor.execute(f"SELECT name, price FROM sidedish WHERE sidedish_id= {id};")
@@ -138,30 +158,36 @@ class PizzaDatabase:
     def get_menu_items(self):
         """
         Get a list of all available pizzas and side dishes.
-        Pizzas are priced based on their ingredients.
+        Pizzas are priced based on their ingredients and include a list of ingredients.
         """
         try:
             # Dictionary to hold the pizzas
             pizzas = []
 
-            # Fetch pizzas and their ingredients with prices
+            # Fetch pizzas and their ingredients with prices and IDs
             self.cursor.execute("""
-                SELECT p.pizza_id, p.name, i.price
-                FROM pizza p
-                JOIN pizza_to_ingredient pi ON p.pizza_id = pi.pizza_id
-                JOIN ingredient i ON pi.ingredient_id = i.ingredient_id
+                SELECT p.pizza_id, p.name, SUM(i.price) AS total_price, GROUP_CONCAT(i.ingredient_id SEPARATOR ',') AS ingredient_ids, GROUP_CONCAT(i.name SEPARATOR ', ') AS ingredients
+            FROM pizza p
+            JOIN pizza_to_ingredient pi ON p.pizza_id = pi.pizza_id
+            JOIN ingredient i ON pi.ingredient_id = i.ingredient_id
+            GROUP BY p.pizza_id, p.name
             """)
 
-            # Group pizzas by their ID and calculate the total price based on their ingredients
-            pizza_dict = {}
+            # Collect the pizza details including the name, price, and ingredients
             for row in self.cursor.fetchall():
-                pizza_id, pizza_name, ingredient_price = row
-                if pizza_id not in pizza_dict:
-                    pizza_dict[pizza_id] = {"id": pizza_id, "name": pizza_name, "price": 0}
-                pizza_dict[pizza_id]["price"] += ingredient_price
-
-            # Convert dictionary to a list of pizzas
-            pizzas = list(pizza_dict.values())
+                pizza_id, pizza_name, total_ingredient_price, ingredient_ids, ingredients = row
+                # Add a 40% profit margin and 9% VAT to the total ingredient cost
+                price_with_profit = total_ingredient_price * 1.40
+                price_with_vat = price_with_profit * 1.09
+                # Convert ingredient_ids string to list of integers
+                ingredient_id_list = [int(x) for x in ingredient_ids.split(',')]
+                pizzas.append({
+                    "id": pizza_id,
+                    "name": pizza_name,
+                    "price": price_with_vat,
+                    "ingredients": ingredient_id_list,  # 使用配料 ID 列表
+                    "ingredient_names": ingredients  # 配料名称字符串
+                })
 
             # Fetch side dishes from the database
             self.cursor.execute("SELECT sidedish_id, name, price FROM sidedish")

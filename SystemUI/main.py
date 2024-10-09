@@ -208,6 +208,7 @@ class PizzaOrderingApp(QMainWindow):
         checkout = Checkout(self, self.menu.pizza_spinboxes, self.menu.sidedish_spinboxes)
         checkout.init_checkout_screen()
 
+
     def logout(self):
         # Handle logout button click (return to log in screen)
         self.init_login_screen()

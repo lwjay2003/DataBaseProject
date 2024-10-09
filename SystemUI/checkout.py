@@ -106,8 +106,10 @@ class Checkout:
 
         return price_with_profit, vat_amount, final_price
 
-    def place_order(self):
+    @staticmethod
+    def place_order():
         # Show confirmation message
+        print("the button is clicked")
         msg_box = QMessageBox()
         msg_box.setIcon(QMessageBox.Information)
         msg_box.setText("Thank you for your order! Your pizza will be ready soon.")
