@@ -93,8 +93,8 @@ class PizzaDatabase:
         """
         Place a new order for the customer.
         - customer_id: The ID of the customer placing the order.
-        - pizzas: A list of pizza IDs being ordered.
-        - sidedishes: A list of side dish IDs being ordered.
+        - pizzas: A dictionary mapping pizza IDs to quantities.
+        - sidedishes: A dictionary mapping side dish IDs to quantities.
         """
         try:
             # Start a transaction to place the order
@@ -106,18 +106,21 @@ class PizzaDatabase:
             self.cursor.execute("SELECT LAST_INSERT_ID()")
             order_id = self.cursor.fetchone()[0]
 
-            # Insert pizzas into the order_to_pizza table
-            for pizza_id in pizzas:
-                self.cursor.execute("INSERT INTO order_to_pizza (order_id, pizza_id) VALUES (%s, %s)",
-                                    (order_id, pizza_id))
+            # Insert pizzas into the order_to_pizza table with quantities
+            for pizza_id, quantity in pizzas.items():
+                self.cursor.execute(
+                    "INSERT INTO order_to_pizza (order_id, pizza_id, quantity) VALUES (%s, %s, %s)",
+                    (order_id, pizza_id, quantity))
                 # Update the accumulation of the customer
-                self.cursor.execute("UPDATE customer SET accumulation = accumulation + 1 WHERE customer_id = %s",
-                                    (customer_id,))
+                self.cursor.execute(
+                    "UPDATE customer SET accumulation = accumulation + %s WHERE customer_id = %s",
+                    (quantity, customer_id))
 
-            # Insert side dishes into the order_to_sidedish table
-            for dish_id in sidedishes:
-                self.cursor.execute("INSERT INTO order_to_sidedish (order_id, sidedish_id) VALUES (%s, %s)",
-                                    (order_id, dish_id))
+            # Insert side dishes into the order_to_sidedish table with quantities
+            for dish_id, quantity in sidedishes.items():
+                self.cursor.execute(
+                    "INSERT INTO order_to_sidedish (order_id, sidedish_id, quantity) VALUES (%s, %s, %s)",
+                    (order_id, dish_id, quantity))
 
             # Commit all changes
             self.conn.commit()
@@ -142,15 +145,13 @@ class PizzaDatabase:
             self.cursor.execute(query, (order_id,))
             result = self.cursor.fetchone()
             if result:
-                order_info = {
+                return {
                     "order_id": result[0],
                     "customer_name": result[1],
                     "time": result[2],
                     "address": result[3]
                 }
-                return order_info
-            else:
-                return None
+            return None
         except Exception as e:
             print(f"Error retrieving order information: {e}")
             return None
@@ -185,8 +186,8 @@ class PizzaDatabase:
                     "id": pizza_id,
                     "name": pizza_name,
                     "price": price_with_vat,
-                    "ingredients": ingredient_id_list,  # 使用配料 ID 列表
-                    "ingredient_names": ingredients  # 配料名称字符串
+                    "ingredients": ingredient_id_list,
+                    "ingredient_names": ingredients
                 })
 
             # Fetch side dishes from the database
@@ -218,7 +219,23 @@ class PizzaDatabase:
             print(f"Error retrieving order time: {e}")
             return None
 
+    def get_customer_orders(self, customer_id):
+        """
+        Get all orders for a specific customer.
+        """
+        try:
+            self.cursor.execute("""
+                SELECT order_id, time 
+                FROM order_info
+                WHERE customer_id = %s
+            """, (customer_id,))
+            orders = self.cursor.fetchall()
 
+            # Format orders into a list of dictionaries
+            return [{"order_id": order[0], "time": order[1]} for order in orders]
+        except Exception as e:
+            print(f"Error retrieving customer orders: {e}")
+            return []
 
     def get_customer_id_from_order(self, order_id):
         """
@@ -385,37 +402,27 @@ class PizzaDatabase:
     def get_order_status(self, order_ids):
         """
         Get the status of the specified orders.
-
-        Args:
-            order_ids (list): List of order IDs to check status for.
         """
         try:
             for order_id in order_ids:
-                # Check if the order exists
                 self.cursor.execute("SELECT time FROM order_info WHERE order_id = %s", (order_id,))
                 result = self.cursor.fetchone()
 
                 if not result:
-                    print(f"Order {order_id} does not exist or has been cancelled.")
-                    continue
+                    return f"Order {order_id} does not exist or has been cancelled."
 
                 order_time = result[0]
                 time_diff = (datetime.datetime.now() - order_time).total_seconds()
 
-                # Determine the order status based on the elapsed time
                 if time_diff < 600:  # less than 10 minutes
-                    print(f"Your order {order_id} is being prepared.")
-                    estimated_delivery = order_time + datetime.timedelta(minutes=10)
-                    print(f"It will be delivered around {estimated_delivery.strftime('%Y-%m-%d %H:%M')}")
+                    return f"Order {order_id} is being prepared."
                 elif time_diff < 1800:  # between 10 and 30 minutes
-                    print(f"Your order {order_id} is out for delivery.")
-                    estimated_arrival = order_time + datetime.timedelta(minutes=30)
-                    print(f"It will arrive around {estimated_arrival.strftime('%Y-%m-%d %H:%M')}")
+                    return f"Order {order_id} is out for delivery."
                 else:
-                    print(f"Your order {order_id} has been delivered.")
-
+                    return f"Order {order_id} has been delivered."
         except Exception as e:
             print(f"Error retrieving order status: {e}")
+            return "Error retrieving order status."
 
     def assign_delivery_person(self, order_id):
         """

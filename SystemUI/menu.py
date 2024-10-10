@@ -28,11 +28,12 @@ class Menu:
         self.pizza_layout = QGridLayout()
 
         # Create pizza labels and spinboxes with ingredients and prices
+
         for i, pizza in enumerate(pizzas):
             pizza_label = QLabel(self.format_pizza_label(pizza))  # Use helper method to format the label
             pizza_label.setFixedWidth(700)
-            pizza_label.setStyleSheet("font-size: 10px; font-weight: bold; font-style: italic;"
-                                      "border-radius: 10px; background-color: red; color: white;")
+            pizza_label.setStyleSheet("font-size: 12px; font-weight: bold; font-style: italic;"
+                                      "border-radius: 10px; background-color: lightyellow; color: black;")
 
             pizza_spinbox = QSpinBox()  # User can select quantity
             pizza_spinbox.setFixedSize(50, 50)
@@ -55,7 +56,7 @@ class Menu:
             dish_label = QLabel(f"{dish['name']} - ${dish['price']:.2f}")
             dish_label.setFixedWidth(400)
             dish_label.setStyleSheet("font-size: 18px; font-weight: bold; font-style: italic;"
-                                     "border-radius: 10px; background-color: red; color: white;")
+                                     "border-radius: 10px; background-color: lightyellow ; color: black;")
 
             dish_spinbox = QSpinBox()  # User can select quantity
             dish_spinbox.setFixedSize(50, 50)
@@ -83,6 +84,18 @@ class Menu:
         # Connect to the checkout screen
         self.checkout_button.clicked.connect(self.main_window.init_checkout_screen)
         self.menu_layout.addWidget(self.checkout_button, alignment=Qt.AlignCenter)
+
+        self.menu_widget.setLayout(self.menu_layout)
+        self.main_window.setCentralWidget(self.menu_widget)
+
+        # Add "My Order" Button
+        self.my_order_button = QPushButton('MyOrder')
+        self.my_order_button.setStyleSheet("font-size: 16px; font: bold; font-style: italic;"
+                                           "color: white;"
+                                           "background-color: blue")
+        self.my_order_button.setFixedSize(100, 50)
+        self.my_order_button.clicked.connect(self.main_window.show_my_order)  # Connect to MyOrder screen
+        self.menu_layout.addWidget(self.my_order_button, alignment=Qt.AlignRight)
 
         self.menu_widget.setLayout(self.menu_layout)
         self.main_window.setCentralWidget(self.menu_widget)

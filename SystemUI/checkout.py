@@ -77,11 +77,29 @@ class Checkout:
         self.place_order_button = QPushButton('Place Order')
         self.place_order_button.setFixedSize(200, 50)
         self.place_order_button.setStyleSheet("font-size: 16px; color: white; background-color: green")
-        self.place_order_button.clicked.connect(self.place_order)
+        self.place_order_button.clicked.connect(self.pass_order_to_database)
         self.checkout_layout.addWidget(self.place_order_button, alignment=Qt.AlignCenter)
+        self.checkout_widget.setLayout(self.checkout_layout)
+        self.main_window.setCentralWidget(self.checkout_widget)
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setText("Thank you for your order! Your pizza will be ready soon.")
+        msg_box.setWindowTitle("Order Confirmation")
+        msg_box.exec_()`
+
+        # Add "My Order" Button
+        self.my_order_button = QPushButton('MyOrder')
+        self.my_order_button.setStyleSheet("font-size: 16px; font: bold; font-style: italic;"
+                                           "color: white;"
+                                           "background-color: blue")
+        self.my_order_button.setFixedSize(100, 50)
+        self.my_order_button.clicked.connect(self.main_window.show_my_order)  # Connect to MyOrder screen
+        self.checkout_layout.addWidget(self.my_order_button, alignment=Qt.AlignRight)
 
         self.checkout_widget.setLayout(self.checkout_layout)
         self.main_window.setCentralWidget(self.checkout_widget)
+
+
 
     def calculate_pizza_price(self, pizza_id):
         """
@@ -106,12 +124,45 @@ class Checkout:
 
         return price_with_profit, vat_amount, final_price
 
-    @staticmethod
-    def place_order():
-        # Show confirmation message
-        print("the button is clicked")
-        msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Information)
-        msg_box.setText("Thank you for your order! Your pizza will be ready soon.")
-        msg_box.setWindowTitle("Order Confirmation")
-        msg_box.exec_()
+
+
+
+    def pass_order_to_database(self):
+        customer_id = self.main_window.customer_id  # Assuming customer_id is stored in main_window
+
+        if customer_id is None:
+            # Prompt the user to log in
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setText("Please log in to place your order.")
+            msg_box.setWindowTitle("Login Required")
+            msg_box.exec_()
+            return
+
+        pizzas = {}  # Dictionary to store pizza IDs and quantities
+        sidedishes = {}  # Dictionary to store side dish IDs and quantities
+
+        # Collect ordered pizzas and their quantities
+        for pizza_id, spinbox in self.pizza_spinboxes.items():
+            quantity = spinbox.value()
+            if quantity > 0:
+                pizzas[pizza_id] = quantity
+
+        # Collect ordered side dishes and their quantities
+        for dish_id, spinbox in self.sidedish_spinboxes.items():
+            quantity = spinbox.value()
+            if quantity > 0:
+                sidedishes[dish_id] = quantity
+
+        # Place the order in the database
+        order_id = self.database.place_order(customer_id, pizzas, sidedishes)
+
+        if order_id is None:
+            # Show error message if order placement fails
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Critical)
+            msg_box.setText("There was an error placing your order. Please try again.")
+            msg_box.setWindowTitle("Order Error")
+            msg_box.exec_()
+
+

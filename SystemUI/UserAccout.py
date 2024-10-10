@@ -56,7 +56,7 @@ class UserAccount:
             finally:
                 conn.close()
 
-        # Add a "Back" button to return to the main menu
+        # Add a "Back" button to return to the main window
         self.back_button = QPushButton('Back', self.main_window)
         self.back_button.setStyleSheet("font-size: 20px; font-weight: bold; font-style: italic; "
                                        "background-color: red; color:white; padding: 10px; border-radius: 10px;")
