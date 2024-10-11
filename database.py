@@ -3,13 +3,30 @@ import datetime
 
 
 class PizzaDatabase:
+    # def __init__(self):
+    #     self.conn = create_connection()
+    #     self.cursor = self.conn.cursor() if self.conn else None
+    #
+    # def __del__(self):
+    #     if self.conn:
+    #         self.conn.close()
+
     def __init__(self):
-        self.conn = create_connection()
-        self.cursor = self.conn.cursor() if self.conn else None
+        # Ensure that self.conn is always defined, even if the connection fails
+        self.conn = create_connection()  # Try to create a connection
+        if self.conn:
+            self.cursor = self.conn.cursor()
+        else:
+            self.cursor = None  # No connection means no cursor
 
     def __del__(self):
-        if self.conn:
-            self.conn.close()
+        # Check if self.conn is defined and connected before trying to close it
+        if hasattr(self, 'conn') and self.conn and self.conn.is_connected():
+            try:
+                self.conn.close()
+                print("Database connection closed.")
+            except Exception as e:
+                print(f"Error closing connection: {e}")
 
     def get_pizza(self, id):
         self.cursor.execute(
@@ -499,4 +516,97 @@ class PizzaDatabase:
             self.conn.rollback()
             print(f"Error grouping delivery orders: {e}")
             return False
+
+    def exists(self, table, column, value):
+        """
+        Check if a value exists in a specific table column.
+
+        Args:
+            table (str): Table name to query.
+            column (str): Column name to check.
+            value (str): The value to check for.
+
+        Returns:
+            bool: True if the value exists, False otherwise.
+        """
+        query = f"SELECT 1 FROM {table} WHERE {column} = %s LIMIT 1"
+        try:
+            self.cursor.execute(query, (value,))
+            result = self.cursor.fetchone()  # Store the result
+            return result is not None  # Check if any result is fetched
+        except Exception as e:
+            print(f"Error checking existence in table '{table}' for column '{column}': {e}")
+            return False
+
+    def create_customer(self, name, gender, birthday, address, postcode, phone):
+        """
+        Create a new customer in the database with an initial accumulation of 0.
+
+        Args:
+            name (str): Customer's name.
+            gender (str): Customer's gender.
+            birthday (str): Customer's birthday in 'YYYY-MM-DD' format.
+            address (str): Customer's address.
+            postcode (str): Customer's postcode.
+            phone (str): Customer's phone number.
+
+        Returns:
+            int: The newly created customer_id.
+        """
+        query = """
+            INSERT INTO customer (name, gender, birthday, address, postcode, phone, accumulation)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """
+        try:
+            # Create a new customer with default accumulation of 1
+            self.cursor.execute(query, (name, gender, birthday, address, postcode, phone, 1))
+            self.conn.commit()
+
+            # Fetch the newly created customer_id
+            self.cursor.execute("SELECT LAST_INSERT_ID()")
+            customer_id = self.cursor.fetchone()[0]
+            return customer_id
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error creating customer: {e}")
+            return None
+
+    def get_pizza_status(self, pizza_id):
+        """
+        Check if the pizza is vegetarian or vegan based on its ingredients.
+
+        Args:
+            pizza_id (int): ID of the pizza.
+
+        Returns:
+            dict: A dictionary indicating if the pizza is vegetarian or vegan.
+        """
+        try:
+            # Fetch the ingredients for the pizza
+            self.cursor.execute("""
+                SELECT ingredient.category 
+                FROM ingredient
+                JOIN pizza_to_ingredient ON ingredient.ingredient_id = pizza_to_ingredient.ingredient_id
+                WHERE pizza_to_ingredient.pizza_id = %s
+            """, (pizza_id,))
+            ingredients = self.cursor.fetchall()
+
+            # Check if the pizza contains any MEAT ingredients
+            contains_meat = any(ingredient[0] == 'MEAT' for ingredient in ingredients)
+            contains_dairy = any(ingredient[0] == 'DAIRY' for ingredient in ingredients)
+
+            # If the pizza contains meat, it is neither vegetarian nor vegan
+            if contains_meat:
+                return {"vegetarian": False, "vegan": False}
+
+            # If the pizza contains dairy, it is vegetarian but not vegan
+            if contains_dairy:
+                return {"vegetarian": True, "vegan": False}
+
+            # If it contains only vegetables, it is vegan
+            return {"vegetarian": True, "vegan": True}
+
+        except Exception as e:
+            print(f"Error checking pizza status: {e}")
+            return {"vegetarian": False, "vegan": False}
 
