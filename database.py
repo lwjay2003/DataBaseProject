@@ -3,7 +3,7 @@ import datetime
 
 
 class PizzaDatabase:
-    # def __init__(self):
+    #not working # def __init__(self):
     #     self.conn = create_connection()
     #     self.cursor = self.conn.cursor() if self.conn else None
     #
@@ -109,9 +109,6 @@ class PizzaDatabase:
     def place_order(self, customer_id, pizzas, sidedishes):
         """
         Place a new order for the customer.
-        - customer_id: The ID of the customer placing the order.
-        - pizzas: A dictionary mapping pizza IDs to quantities.
-        - sidedishes: A dictionary mapping side dish IDs to quantities.
         """
         try:
             # Start a transaction to place the order
@@ -123,21 +120,25 @@ class PizzaDatabase:
             self.cursor.execute("SELECT LAST_INSERT_ID()")
             order_id = self.cursor.fetchone()[0]
 
+            total_pizzas_ordered = 0  # Initialize total pizzas ordered
+
             # Insert pizzas into the order_to_pizza table with quantities
             for pizza_id, quantity in pizzas.items():
                 self.cursor.execute(
                     "INSERT INTO order_to_pizza (order_id, pizza_id, quantity) VALUES (%s, %s, %s)",
                     (order_id, pizza_id, quantity))
-                # Update the accumulation of the customer
-                self.cursor.execute(
-                    "UPDATE customer SET accumulation = accumulation + %s WHERE customer_id = %s",
-                    (quantity, customer_id))
+                total_pizzas_ordered += quantity  # Accumulate the number of pizzas ordered
 
             # Insert side dishes into the order_to_sidedish table with quantities
             for dish_id, quantity in sidedishes.items():
                 self.cursor.execute(
                     "INSERT INTO order_to_sidedish (order_id, sidedish_id, quantity) VALUES (%s, %s, %s)",
                     (order_id, dish_id, quantity))
+
+            # Update the accumulation of the customer
+            self.cursor.execute(
+                "UPDATE customer SET accumulation = accumulation + %s WHERE customer_id = %s",
+                (total_pizzas_ordered, customer_id))
 
             # Commit all changes
             self.conn.commit()
@@ -147,6 +148,31 @@ class PizzaDatabase:
             self.conn.rollback()
             print(f"Error placing order: {e}")
             return None
+
+    def get_customer_accumulation(self, customer_id):
+        """
+        Get the customer's current accumulation.
+        """
+        query = "SELECT accumulation FROM customer WHERE customer_id = %s"
+        try:
+            self.cursor.execute(query, (customer_id,))
+            result = self.cursor.fetchone()
+            return result[0] if result else 0
+        except Exception as e:
+            print(f"Error getting customer accumulation: {e}")
+            return 0
+
+    def reset_customer_accumulation(self, customer_id, new_accumulation):
+        """
+        Reset the customer's accumulation to a new value.
+        """
+        query = "UPDATE customer SET accumulation = %s WHERE customer_id = %s"
+        try:
+            self.cursor.execute(query, (new_accumulation, customer_id))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error resetting customer accumulation: {e}")
 
     def get_order_info(self, order_id):
         """
@@ -325,26 +351,22 @@ class PizzaDatabase:
             self.conn.rollback()
             print(f"Error cancelling order: {e}")
 
-    def check_coupon(self, customer_id):
+    def check_coupon(db, customer_id):
         """
-        Check if the customer has a valid coupon for a discount.
+        Automatically apply a 10% discount if the customer has accumulated 10 or more pizzas.
         """
-        query = "SELECT accumulation FROM customer WHERE customer_id = %s"
-        try:
-            self.cursor.execute(query, (customer_id,))
-            result = self.cursor.fetchone()
-            if result and result[0] >= 10:
-                # The customer has enough points for a coupon, update the accumulation
-                update_query = "UPDATE customer SET accumulation = accumulation - 10 WHERE customer_id = %s"
-                self.cursor.execute(update_query, (customer_id,))
-                self.conn.commit()
-                return True
-            return False
-        except Exception as e:
-            self.conn.rollback()
-            print(f"Error checking coupon: {e}")
-            return False
-
+        # Get the customer's current accumulation
+        accumulation = db.get_customer_accumulation(customer_id)
+        if accumulation >= 10:
+            print("- Congratulations! You've ordered 10 or more pizzas and earned a 10% discount on this order.")
+            # Reset accumulation by subtracting 10
+            new_accumulation = accumulation - 10
+            db.reset_customer_accumulation(customer_id, new_accumulation)
+            return 0.9  # Apply 10% discount
+        else:
+            pizzas_needed = 10 - accumulation
+            print(f"- You need {pizzas_needed} more pizza(s) to earn a 10% discount on your next order.")
+        return 1.0  # No discount
 
     def issue_coupon(self, customer_id):
         """
@@ -402,18 +424,36 @@ class PizzaDatabase:
             print(f"Error redeeming coupon: {e}")
             return False
 
-
-
     def get_delivery_person_status(self):
         """
-        Get the current status of all delivery persons.
+        Get the current status of all delivery persons, resetting their time if it's in the past.
         """
         try:
+            # Fetch all delivery persons
             self.cursor.execute("SELECT delivery_person_id, name, postcode, time FROM delivery_person")
-            delivery_person = self.cursor.fetchall()
-            return [{"id": d[0], "name": d[1], "postcode": d[2], "time": d[3]} for d in delivery_person]
+            delivery_persons = self.cursor.fetchall()
+            updated_delivery_persons = []
+
+            for dp in delivery_persons:
+                dp_id, dp_name, dp_postcode, dp_time = dp
+                if dp_time and dp_time <= datetime.datetime.now():
+                    # Reset time to NULL in the database
+                    self.cursor.execute("""
+                        UPDATE delivery_person
+                        SET time = NULL
+                        WHERE delivery_person_id = %s
+                    """, (dp_id,))
+                    self.conn.commit()
+                    dp_time = None  # Update the local variable to reflect the change
+                updated_delivery_persons.append({
+                    "id": dp_id,
+                    "name": dp_name,
+                    "postcode": dp_postcode,
+                    "time": dp_time
+                })
+            return updated_delivery_persons
         except Exception as e:
-            print(f"Error fetching deliverymen status: {e}")
+            print(f"Error fetching delivery person status: {e}")
             return []
 
     def get_order_status(self, order_ids):
@@ -573,6 +613,28 @@ class PizzaDatabase:
             print(f"Error grouping delivery orders: {e}")
             return False
 
+    def reset_orders(self):
+        """
+        Reset the order-related tables: order_info, order_to_pizza, order_to_sidedish.
+        Also reset the accumulation in the customer table.
+        """
+        try:
+            # Start a transaction
+            self.conn.start_transaction()
+            # Delete all records from order-related tables
+            self.cursor.execute("DELETE FROM order_to_pizza")
+            self.cursor.execute("DELETE FROM order_to_sidedish")
+            self.cursor.execute("DELETE FROM order_info")
+            # Reset AUTO_INCREMENT value for order_info table
+            self.cursor.execute("ALTER TABLE order_info AUTO_INCREMENT = 1")
+            # Reset accumulation in customer table
+            self.cursor.execute("UPDATE customer SET accumulation = 0")
+            # Commit the transaction
+            self.conn.commit()
+            print("All orders have been reset. Next order ID will start from 1.")
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error resetting orders: {e}")
     def exists(self, table, column, value):
         """
         Check if a value exists in a specific table column.
@@ -665,4 +727,320 @@ class PizzaDatabase:
         except Exception as e:
             print(f"Error checking pizza status: {e}")
             return {"vegetarian": False, "vegan": False}
+
+    def get_customer_pizza_orders(self, customer_id):
+        """
+        Get all pizzas the customer has ordered, along with quantities.
+        """
+        try:
+            # First, get all orders for the customer
+            self.cursor.execute("""
+                SELECT order_id
+                FROM order_info
+                WHERE customer_id = %s
+            """, (customer_id,))
+            orders = self.cursor.fetchall()
+            if not orders:
+                return []
+
+            order_ids = [order[0] for order in orders]
+
+            # Now, get pizzas and quantities for these orders
+            # Use IN clause to get data for multiple order_ids
+            format_strings = ','.join(['%s'] * len(order_ids))
+            query = f"""
+                SELECT otp.pizza_id, p.name, SUM(otp.quantity) as total_quantity
+                FROM order_to_pizza otp
+                JOIN pizza p ON otp.pizza_id = p.pizza_id
+                WHERE otp.order_id IN ({format_strings})
+                GROUP BY otp.pizza_id, p.name
+            """
+            self.cursor.execute(query, tuple(order_ids))
+            pizzas = self.cursor.fetchall()
+            # pizzas is a list of tuples (pizza_id, pizza_name, total_quantity)
+            return pizzas
+        except Exception as e:
+            print(f"Error retrieving customer pizza orders: {e}")
+            return []
+
+    def get_pizzas_still_in_oven(self):
+        """
+        Retrieve pizzas that have been ordered but not yet dispatched for delivery.
+        """
+        try:
+            # Fetch orders that have not been assigned to a delivery person yet
+            self.cursor.execute("""
+                SELECT oi.order_id, otp.pizza_id, p.name AS pizza_name, otp.quantity, oi.time AS order_time
+                FROM order_info oi
+                JOIN order_to_pizza otp ON oi.order_id = otp.order_id
+                JOIN pizza p ON otp.pizza_id = p.pizza_id
+                WHERE oi.delivery_person_id IS NULL
+                ORDER BY oi.time ASC
+            """)
+            result = self.cursor.fetchall()
+            pizzas_in_oven = []
+            for row in result:
+                pizzas_in_oven.append({
+                    'order_id': row[0],
+                    'pizza_id': row[1],
+                    'pizza_name': row[2],
+                    'quantity': row[3],
+                    'order_time': row[4]
+                })
+            return pizzas_in_oven
+        except Exception as e:
+            print(f"Error retrieving pizzas still in oven: {e}")
+            return []
+
+    def assign_delivery_person2(self):
+        """
+        for handle group order, may not be the most efficient and elegant one but it works
+        """
+        try:
+            cutoff_time = datetime.datetime.now() - datetime.timedelta(minutes=3)
+
+            # Find all unassigned orders older than 3 minutes
+            self.cursor.execute("""
+                SELECT oi.order_id, c.postcode, oi.time
+                FROM order_info oi
+                JOIN customer c ON oi.customer_id = c.customer_id
+                WHERE oi.delivery_person_id IS NULL
+                AND oi.time <= %s
+                ORDER BY c.postcode, oi.time
+            """, (cutoff_time,))
+
+            pending_orders = self.cursor.fetchall()
+
+            # Group orders by postal code
+            orders_by_postcode = {}
+            for order_id, postcode, order_time in pending_orders:
+                if postcode not in orders_by_postcode:
+                    orders_by_postcode[postcode] = []
+                orders_by_postcode[postcode].append((order_id, order_time))
+
+            # Assign delivery persons to grouped orders
+            for postcode, orders in orders_by_postcode.items():
+                self.group_and_assign_orders(orders, postcode)
+
+            print("Delivery persons have been assigned to pending orders.")
+            return True
+
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error assigning delivery persons: {e}")
+            return False
+
+    def group_and_assign_orders(self, orders, postcode):
+        """
+        Group orders within a 3-minute window and assign a delivery person.
+        """
+        grouped_orders = []
+        group_start_time = None
+        total_pizzas = 0
+
+        for order_id, order_time in orders:
+            if group_start_time is None:
+                group_start_time = order_time
+                grouped_orders.append(order_id)
+                total_pizzas += self.get_total_pizzas_in_order(order_id)
+            else:
+                time_diff = (order_time - group_start_time).total_seconds()
+                if time_diff <= 180 and total_pizzas < 3:
+                    # Within 3-minute window and pizza limit not exceeded
+                    grouped_orders.append(order_id)
+                    total_pizzas += self.get_total_pizzas_in_order(order_id)
+                else:
+                    # Assign the current group
+                    self.assign_grouped_orders(grouped_orders, postcode)
+                    # Reset grouping variables
+                    group_start_time = order_time
+                    grouped_orders = [order_id]
+                    total_pizzas = self.get_total_pizzas_in_order(order_id)
+
+        # Assign any remaining grouped orders
+        if grouped_orders:
+            self.assign_grouped_orders(grouped_orders, postcode)
+
+    def get_total_pizzas_in_order(self, order_id):
+        """
+        Get the total number of pizzas in a specific order.
+        """
+        self.cursor.execute("""
+            SELECT SUM(quantity)
+            FROM order_to_pizza
+            WHERE order_id = %s
+        """, (order_id,))
+        result = self.cursor.fetchone()
+        return result[0] if result[0] else 0
+
+    def assign_grouped_orders(self, order_ids, postcode):
+        """
+        Assign a delivery person to a group of orders.
+        """
+        # Find an available delivery person for the postcode
+        self.cursor.execute("""
+            SELECT delivery_person_id
+            FROM delivery_person
+            WHERE postcode = %s
+            AND (time IS NULL OR time <= %s)
+            ORDER BY time ASC
+            LIMIT 1
+        """, (postcode, datetime.datetime.now()))
+        delivery_person = self.cursor.fetchone()
+
+        if not delivery_person:
+            print(f"No delivery person available for postal code {postcode}.")
+            return False
+
+        delivery_person_id = delivery_person[0]
+        estimated_delivery_time = datetime.datetime.now() + datetime.timedelta(minutes=30)
+
+        # Update delivery person time to make them unavailable for the next 30 minutes
+        self.cursor.execute("""
+            UPDATE delivery_person
+            SET time = %s
+            WHERE delivery_person_id = %s
+        """, (estimated_delivery_time, delivery_person_id))
+        self.conn.commit()
+
+        # Assign the delivery person to the grouped orders
+        for oid in order_ids:
+            self.cursor.execute("""
+                UPDATE order_info
+                SET delivery_person_id = %s
+                WHERE order_id = %s
+            """, (delivery_person_id, oid))
+        self.conn.commit()
+
+        print(f"Orders {', '.join(map(str, order_ids))} have been assigned to delivery person {delivery_person_id}.")
+        return True
+
+    def generate_monthly_earnings_report(self, filters):
+        """
+        Generate a monthly earnings report with optional filters.
+        Args:
+            filters (dict): Filtering options for postcode, gender, and age range.
+        Returns:
+            dict: Report data including total earnings, order count, pizza count, and sidedish count.
+        """
+        try:
+            # Get the first and last day of the current month
+            today = datetime.date.today()
+            first_day = today.replace(day=1)
+            last_day = (first_day + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
+
+            # Build the base query for pizzas
+            query = """
+                SELECT
+                    oi.order_id,
+                    SUM((i.price * 1.40 * 1.09) * otp.quantity) AS pizza_total_price,
+                    SUM(otp.quantity) AS pizza_quantity
+                FROM order_info oi
+                JOIN customer c ON oi.customer_id = c.customer_id
+                JOIN order_to_pizza otp ON oi.order_id = otp.order_id
+                JOIN pizza p ON otp.pizza_id = p.pizza_id
+                JOIN pizza_to_ingredient pi ON p.pizza_id = pi.pizza_id
+                JOIN ingredient i ON pi.ingredient_id = i.ingredient_id
+                WHERE oi.time BETWEEN %s AND %s
+            """
+
+            params = [first_day, last_day]
+
+            # Apply filters
+            if 'postcode' in filters:
+                query += " AND c.postcode = %s"
+                params.append(filters['postcode'])
+
+            if 'gender' in filters:
+                query += " AND c.gender = %s"
+                params.append(filters['gender'])
+
+            if 'age_min' in filters and 'age_max' in filters:
+                today = datetime.date.today()
+                birthdate_min = today.replace(year=today.year - filters['age_max'])
+                birthdate_max = today.replace(year=today.year - filters['age_min'])
+                query += " AND c.birthday BETWEEN %s AND %s"
+                params.extend([birthdate_min, birthdate_max])
+
+            query += " GROUP BY oi.order_id"
+
+            # Execute the query
+            self.cursor.execute(query, tuple(params))
+            pizza_orders = self.cursor.fetchall()
+
+            # Now, get side dishes
+            query_sidedish = """
+                SELECT
+                    oi.order_id,
+                    SUM(sd.price * otd.quantity) AS sidedish_total_price,
+                    SUM(otd.quantity) AS sidedish_quantity
+                FROM order_info oi
+                JOIN customer c ON oi.customer_id = c.customer_id
+                JOIN order_to_sidedish otd ON oi.order_id = otd.order_id
+                JOIN sidedish sd ON otd.sidedish_id = sd.sidedish_id
+                WHERE oi.time BETWEEN %s AND %s
+            """
+
+            params_sidedish = [first_day, last_day]
+
+            # Apply same filters
+            if 'postcode' in filters:
+                query_sidedish += " AND c.postcode = %s"
+                params_sidedish.append(filters['postcode'])
+
+            if 'gender' in filters:
+                query_sidedish += " AND c.gender = %s"
+                params_sidedish.append(filters['gender'])
+
+            if 'age_min' in filters and 'age_max' in filters:
+                today = datetime.date.today()
+                birthdate_min = today.replace(year=today.year - filters['age_max'])
+                birthdate_max = today.replace(year=today.year - filters['age_min'])
+                query_sidedish += " AND c.birthday BETWEEN %s AND %s"
+                params_sidedish.extend([birthdate_min, birthdate_max])
+
+            query_sidedish += " GROUP BY oi.order_id"
+
+            # Execute the query
+            self.cursor.execute(query_sidedish, tuple(params_sidedish))
+            sidedish_orders = self.cursor.fetchall()
+
+            # Calculate totals
+            total_earnings = 0.0
+            pizza_count = 0
+            sidedish_count = 0
+            orders = set()
+
+            # Process pizza orders
+            for order in pizza_orders:
+                order_id = order[0]
+                pizza_total_price = order[1] if order[1] is not None else 0.0
+                pizza_quantity = order[2] if order[2] is not None else 0
+
+                total_earnings += pizza_total_price
+                pizza_count += pizza_quantity
+                orders.add(order_id)
+
+            # Process sidedish orders
+            for order in sidedish_orders:
+                order_id = order[0]
+                sidedish_total_price = order[1] if order[1] is not None else 0.0
+                sidedish_quantity = order[2] if order[2] is not None else 0
+
+                total_earnings += sidedish_total_price
+                sidedish_count += sidedish_quantity
+                orders.add(order_id)
+
+            report = {
+                'total_earnings': total_earnings,
+                'order_count': len(orders),
+                'pizza_count': pizza_count,
+                'sidedish_count': sidedish_count
+            }
+
+            return report if report['order_count'] > 0 else None
+
+        except Exception as e:
+            print(f"Error generating earnings report: {e}")
+            return None
 

@@ -2,37 +2,43 @@ from database import PizzaDatabase
 import datetime
 
 doc = """
-Available commands:
+Welcome to Jay and stella's pizza, Use Following commands to operate:
 - menu
   Prints available pizzas and side dishes.
 - order item1 item2 ...
   Place a new order. Add items separated by a space.
+  Use 'P' before pizza IDs and 'S' before side dish IDs.
+  Example: order P1 P2 S101 S102
 - cancel order_id1 order_id2 ...
   Cancel an existing order.
 - status order_id1 order_id2 ...
   Check the status of orders.
 - delivery
   Check all delivery persons' status.
+- reset
+  Reset all orders in the system.
+- restaurant
+  Display pizzas that have been ordered but not yet dispatched for delivery.
 - help
   Show this message.
 - quit
-  Quit the app.
+  Quit the app
 """
 
 def parse_order(db, ids):
     pizzas = {}
     sidedishes = {}
     menu_items = db.get_menu_items()
-    pizzas_dict = {str(pizza['id']): pizza for pizza in menu_items['pizzas']}
-    sidedishes_dict = {str(sd['id']): sd for sd in menu_items['sidedishes']}
+    pizzas_dict = {f"P{pizza['id']}": pizza for pizza in menu_items['pizzas']}
+    sidedishes_dict = {f"S{sd['id']}": sd for sd in menu_items['sidedishes']}
 
     for id in ids:
-        if id in pizzas_dict:
+        if id.startswith('P') and id in pizzas_dict:
             if id in pizzas:
                 pizzas[id] += 1
             else:
                 pizzas[id] = 1
-        elif id in sidedishes_dict:
+        elif id.startswith('S') and id in sidedishes_dict:
             if id in sidedishes:
                 sidedishes[id] += 1
             else:
@@ -53,63 +59,138 @@ def parse_order(db, ids):
         print(f"Side Dish {sd['name']} x {qty}")
     return pizzas, sidedishes
 
+
 def setup_customer(db):
     while True:
-        choice = input("Do you have an account? (y/n) > ").strip().lower()
-        if choice == 'y':
-            username = input("Username > ").strip()
-            password = input("Password > ").strip()
-            customer_id = db.login(username, password)
-            if customer_id:
-                customer_info = db.get_customer_info(customer_id)
-                if customer_info:
-                    print(f"- Your information: name: {customer_info['name']}, address: {customer_info['address']}, postcode: {customer_info['postcode']}, phone number: {customer_info['phone']}.")
-                    return customer_id
-                else:
-                    print("Customer information not found.")
+        if input("Do you have a customer ID? (y/n) > ").strip().lower() == 'y':
+            customer_id = input("Your customer ID > ").strip()
+            customer = db.get_customer_info(customer_id)
+            if customer:
+                print(
+                    f"Customer found: {customer['name']}, {customer['address']}, {customer['postcode']}, {customer['phone']}")
+                return customer_id, customer  # Return the customer data as well
             else:
-                print("Invalid username or password.")
+                print("ID does not exist. Please try again.")
         else:
-            print("Account creation is not supported at this time. Please contact support.")
-            return None
+            # Register a new customer
+            print("Let's make an account for you!")
+            name = input("Name > ").strip()
+            gender = input("Gender (MALE/FEMALE) > ").strip().upper()
+            birthday = input("Birthday (YYYY-MM-DD) > ").strip()
+            address = input("Address > ").strip()
+            postcode = input("Postcode > ").strip()
+            phone = input("Phone number > ").strip()
+
+            if not postcode[:4].isdigit():
+                print("Invalid postcode. Please write postcode like 1234XX.")
+            elif not db.exists('delivery_person', 'postcode', postcode):
+                print(f"Cannot deliver to postal code {postcode}. Please try another address.")
+            else:
+                customer_id = db.create_customer(name, gender, birthday, address, postcode, phone)
+                print(f"Registered successfully! Your customer ID is {customer_id}")
+                # Fetch the customer data
+                customer = db.get_customer_info(customer_id)
+                return customer_id, customer  # Return the customer data as well
+
+
 
 def cancel_order(db, order_id):
     db.cancel_order(order_id)
 
 def check_coupon(db, customer_id):
-    if db.has_valid_coupon(customer_id):
-        use_coupon = input("You have a valid coupon. Do you want to use it? (y/n) > ").strip().lower()
-        if use_coupon == 'y':
-            coupon_info = db.has_valid_coupon(customer_id)
-            if db.redeem_coupon(coupon_info['coupon_id']):
-                print("- Coupon applied for a 10% discount.")
-                return 0.9
+    """
+    Automatically apply a 10% discount if the customer has accumulated 10 or more pizzas.
+    """
+    # Get the customer's current accumulation
+    accumulation = db.get_customer_accumulation(customer_id)
+    if accumulation >= 10:
+        print("- You have ordered 10 or more pizzas! A 10% discount has been applied to your order.")
+        # Reset accumulation by subtracting 10
+        db.reset_customer_accumulation(customer_id, accumulation - 10)
+        return 0.9  # Apply 10% discount
     else:
-        if db.check_coupon(customer_id):
-            print("- You have accumulated enough points for a 10% discount coupon. It has been applied to your account.")
-    return 1.0
+        pizzas_needed = 10 - accumulation
+        print(f"- You need {pizzas_needed} more pizza(s) to earn a 10% discount on your next order.")
+    return 1.0  # No discount
 
-def show_order(db, pizzas, sidedishes, discount):
+def is_customer_birthday(customer):
+    """
+    Check if today is the customer's birthday.
+
+    Args:
+        customer (dict): Customer information dictionary.
+
+    Returns:
+        bool: True if today is the customer's birthday, False otherwise.
+    """
+    if 'birthday' not in customer or not customer['birthday']:
+        return False
+
+    try:
+        birthday = customer['birthday']
+        if isinstance(birthday, str):
+            birthday = datetime.datetime.strptime(birthday, '%Y-%m-%d').date()
+        today = datetime.date.today()
+        return birthday.month == today.month and birthday.day == today.day
+    except Exception as e:
+        print(f"Error checking birthday: {e}")
+        return False
+
+
+def show_order(db, pizzas, sidedishes, discount, birthday_offer_applied=False):
     total_price = 0.0
     menu_items = db.get_menu_items()
-    pizzas_dict = {str(pizza['id']): pizza for pizza in menu_items['pizzas']}
-    sidedishes_dict = {str(sd['id']): sd for sd in menu_items['sidedishes']}
+    pizzas_dict = {f"P{pizza['id']}": pizza for pizza in menu_items['pizzas']}
+    sidedishes_dict = {f"S{sd['id']}": sd for sd in menu_items['sidedishes']}
 
     print("Your order details:")
     for id, qty in pizzas.items():
         pizza = pizzas_dict[id]
-        price = pizza['price'] * qty
-        total_price += price
-        print(f"- Pizza {pizza['name']} x {qty} @ €{pizza['price']:.2f} each = €{price:.2f}")
+        price_per_item = pizza['price']
+        total_item_price = price_per_item * qty
+
+        # Adjust price if birthday offer is applied
+        if birthday_offer_applied and qty > 0:
+            # Assuming the first pizza is free
+            qty_to_charge = qty - 1 if qty > 0 else 0
+            total_item_price = price_per_item * qty_to_charge
+            total_price += total_item_price
+            print(f"- Pizza {pizza['name']} x {qty} (1 free) @ €{price_per_item:.2f} each = €{total_item_price:.2f}")
+        else:
+            total_price += total_item_price
+            print(f"- Pizza {pizza['name']} x {qty} @ €{price_per_item:.2f} each = €{total_item_price:.2f}")
 
     for id, qty in sidedishes.items():
         sd = sidedishes_dict[id]
-        price = sd['price'] * qty
-        total_price += price
-        print(f"- Side Dish {sd['name']} x {qty} @ €{sd['price']:.2f} each = €{price:.2f}")
+        price_per_item = sd['price']
+        total_item_price = price_per_item * qty
+
+        # Adjust price if birthday offer is applied
+        if birthday_offer_applied and qty > 0:
+            # Assuming the first side dish is free
+            qty_to_charge = qty - 1 if qty > 0 else 0
+            total_item_price = price_per_item * qty_to_charge
+            total_price += total_item_price
+            print(f"- Side Dish {sd['name']} x {qty} (1 free) @ €{price_per_item:.2f} each = €{total_item_price:.2f}")
+        else:
+            total_price += total_item_price
+            print(f"- Side Dish {sd['name']} x {qty} @ €{price_per_item:.2f} each = €{total_item_price:.2f}")
 
     total_price_discounted = total_price * discount
     print(f"- Total price: €{total_price_discounted:.2f} (original price: €{total_price:.2f})")
+
+
+
+def get_existing_customer_id(db):
+    while True:
+        customer_id = input("Please enter your customer ID > ").strip()
+        customer = db.get_customer_info(customer_id)
+        if customer:
+            print(
+                f"Customer found: {customer['name']}, {customer['address']}, {customer['postcode']}, {customer['phone']}")
+            return customer_id
+        else:
+            print("Customer ID does not exist. Please try again.")
 
 if __name__ == "__main__":
     db = PizzaDatabase()
@@ -125,41 +206,109 @@ if __name__ == "__main__":
         if command == "menu":
             menu_items = db.get_menu_items()
             print("- Pizzas:")
+            # Prepare header
+            print("{:<5} {:<20} {:<10} {}".format("ID", "Name", "Price", "Ingredients"))
+            print("-" * 70)
             for pizza in menu_items['pizzas']:
-                print(f"  ID: {pizza['id']}, Name: {pizza['name']}, Price: €{pizza['price']:.2f}, Ingredients: {pizza['ingredient_names']}")
-            print("- Side Dishes:")
+                ingredients = pizza['ingredient_names']
+                print("{:<5} {:<20} €{:<9.2f} {}".format(f"P{pizza['id']}", pizza['name'], pizza['price'], ingredients))
+            print("\n- Side Dishes:")
+            print("{:<5} {:<20} {:<10}".format("ID", "Name", "Price"))
+            print("-" * 40)
             for sd in menu_items['sidedishes']:
-                print(f"  ID: {sd['id']}, Name: {sd['name']}, Price: €{sd['price']:.2f}")
+                print("{:<5} {:<20} €{:<9.2f}".format(f"S{sd['id']}", sd['name'], sd['price']))
         elif command == "order":
             if not args:
                 print("Please specify items to order.")
+                print("Example: order P1 P2 S101 S102")
                 continue
             pizzas, sidedishes = parse_order(db, args)
             if not pizzas:
                 continue
-            customer_id = setup_customer(db)
+            customer_id, customer = setup_customer(db)
             if not customer_id:
                 continue
+
+            # Check if today is the customer's birthday
+            birthday_offer_applied = False
+            if is_customer_birthday(customer):
+                print("Happy Birthday! You are eligible for a free pizza and a free drink!")
+                birthday_offer_applied = True
+
+                # Apply the offer by adding a free pizza and drink
+                # Let's assume that P1 is the default free pizza and S101 is the default free drink
+                # Or you can let the customer choose their free items
+
+                # Add free pizza
+                free_pizza_id = 'P1'  # Default free pizza ID
+                if free_pizza_id in pizzas:
+                    pizzas[free_pizza_id] += 1
+                else:
+                    pizzas[free_pizza_id] = 1
+
+                # Add free drink (assuming drinks are side dishes with IDs starting with 'S')
+                free_drink_id = 'S1'  # Default free drink ID
+                if free_drink_id in sidedishes:
+                    sidedishes[free_drink_id] += 1
+                else:
+                    sidedishes[free_drink_id] = 1
+
             # Check for coupon
             discount = check_coupon(db, customer_id)
             # Place order
-            order_id = db.place_order(customer_id, pizzas, sidedishes)
+            # Convert item IDs back to numerical IDs
+            pizzas_numeric = {id[1:]: qty for id, qty in pizzas.items()}
+            sidedishes_numeric = {id[1:]: qty for id, qty in sidedishes.items()}
+            order_id = db.place_order(customer_id, pizzas_numeric, sidedishes_numeric)
             if order_id:
                 print("+-----------------------------------------------------------+")
                 print(f"- Your order id is: {order_id}")
                 print("- You can cancel your order within 5 minutes using your order id.\n")
-                show_order(db, pizzas, sidedishes, discount)
+                show_order(db, pizzas, sidedishes, discount, birthday_offer_applied)
                 print("+-----------------------------------------------------------+")
+                estimated_delivery_time = datetime.datetime.now() + datetime.timedelta(minutes=30)
+                # Display estimated delivery time
+                print(f"- Yours estimated delivery time: {estimated_delivery_time.strftime('%Y-%m-%d %H:%M')}")
                 # Assign delivery person
-                if db.assign_delivery_person(order_id):
-                    print("- Your order has been assigned to a delivery person.")
-                else:
-                    print("- We couldn't assign a delivery person at this time.")
+                #if db.assign_delivery_person(order_id):
+                    #print("- Your order has been assigned to a delivery person.")
+                #else:
+                    #print("- We couldn't assign a delivery person at this time.")
             else:
                 print("Error placing order.")
         elif command == "cancel":
             for order_id in args:
                 cancel_order(db, order_id)
+        elif command == "show":
+            if len(args) >= 2 and args[0] == "my" and args[1] == "orders":
+                customer_id = get_existing_customer_id(db)
+                if customer_id:
+                    pizzas = db.get_customer_pizza_orders(customer_id)
+                    if pizzas:
+                        print("You have ordered the following pizzas:")
+                        total_pizzas = 0
+                        for pizza_id, pizza_name, total_quantity in pizzas:
+                            print(f"- {pizza_name} x {total_quantity}")
+                            total_pizzas += total_quantity
+                        print(f"Total number of pizzas ordered: {total_pizzas}")
+                    else:
+                        print("You have not ordered any pizzas yet.")
+                else:
+                    print("Unable to retrieve customer information.")
+
+        elif command == "restaurant":
+
+                orders_in_oven = db.get_pizzas_still_in_oven()
+                if orders_in_oven:
+                    print("Pizzas still in the oven (not yet dispatched for delivery):")
+                    print("{:<10} {:<20} {:<10} {:<20}".format("Order ID", "Pizza Name", "Quantity", "Order Time"))
+                    print("-" * 70)
+                    for order in orders_in_oven:
+                        print("{:<10} {:<20} {:<10} {:<20}".format(order['order_id'], order['pizza_name'],
+                                                                   order['quantity'],
+                                                                   order['order_time'].strftime('%Y-%m-%d %H:%M')))
+                else:
+                    print("There are no pizzas currently in the oven.")
         elif command == "status":
             for order_id in args:
                 status = db.get_order_status([order_id])
@@ -167,10 +316,66 @@ if __name__ == "__main__":
         elif command == "delivery":
             delivery_persons = db.get_delivery_person_status()
             if delivery_persons:
+                print("{:<5} {:<20} {:<10} {}".format("ID", "Name", "Postcode", "Next Available Time"))
+                print("-" * 60)
                 for dp in delivery_persons:
-                    print(f"ID: {dp['id']}, Name: {dp['name']}, Postcode: {dp['postcode']}, Next Available Time: {dp['time']}")
+                    time_str = dp['time'].strftime('%Y-%m-%d %H:%M') if dp['time'] else 'Available Now'
+                    print("{:<5} {:<20} {:<10} {}".format(dp['id'], dp['name'], dp['postcode'], time_str))
             else:
                 print("No delivery person information available.")
+
+        elif command == "assign":
+            if len(args) >= 1 and args[0] == "deliveries":
+                if db.assign_delivery_person2():
+                    print("Pending deliveries have been assigned.")
+                else:
+                    print("Failed to assign deliveries.")
+            else:
+                print("Unknown assign command. Use 'assign deliveries' to assign pending orders.")
+        elif command.lower() == "report":
+            filters = {}
+            # Prompt for filters
+            print("Generating Monthly Earnings Report.")
+            use_filters = input("Do you want to apply any filters? (y/n) > ").strip().lower()
+            if use_filters == 'y':
+                # Filter by postcode
+                filter_postcode = input("Filter by postcode? (leave blank to skip) > ").strip()
+                if filter_postcode:
+                    filters['postcode'] = filter_postcode
+
+                # Filter by customer gender
+                filter_gender = input("Filter by gender? (MALE/FEMALE, leave blank to skip) > ").strip().upper()
+                if filter_gender in ('MALE', 'FEMALE'):
+                    filters['gender'] = filter_gender
+
+                # Filter by age range
+                filter_age = input("Filter by age range? (e.g., 18-25, leave blank to skip) > ").strip()
+                if filter_age:
+                    try:
+                        age_min, age_max = map(int, filter_age.split('-'))
+                        filters['age_min'] = age_min
+                        filters['age_max'] = age_max
+                    except ValueError:
+                        print("Invalid age range format. Skipping age filter.")
+
+            report = db.generate_monthly_earnings_report(filters)
+            if report:
+                print("\nMonthly Earnings Report:")
+                print(f"Total Earnings: €{report['total_earnings']:.2f}")
+                print(f"Number of Orders: {report['order_count']}")
+                print(f"Number of Pizzas Sold: {report['pizza_count']}")
+                print(f"Number of Side Dishes Sold: {report['sidedish_count']}")
+            else:
+                print("No data available for the given filters.")
+
+        #reset the table of orders in database
+        elif command == "reset":
+            confirm = input(
+                "Are you sure you want to reset all orders? This action cannot be undone. (y/n) > ").strip().lower()
+            if confirm == 'y':
+                db.reset_orders()
+            else:
+                print("Reset operation cancelled.")
         elif command == "help":
             print(doc)
         elif command == "quit":
