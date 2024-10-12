@@ -8,7 +8,7 @@ Welcome to Jay and stella's pizza, Use Following commands to operate:
 - order item1 item2 ...
   Place a new order. Add items separated by a space.
   Use 'P' before pizza IDs and 'S' before side dish IDs.
-  Example: order P1 P2 S101 S102
+  Example: order P1 P2 S1 S1
 - cancel order_id1 order_id2 ...
   Cancel an existing order.
 - status order_id1 order_id2 ...
@@ -220,7 +220,7 @@ if __name__ == "__main__":
         elif command == "order":
             if not args:
                 print("Please specify items to order.")
-                print("Example: order P1 P2 S101 S102")
+                print("Example: order P1 P2 S1 S2")
                 continue
             pizzas, sidedishes = parse_order(db, args)
             if not pizzas:
@@ -236,8 +236,6 @@ if __name__ == "__main__":
                 birthday_offer_applied = True
 
                 # Apply the offer by adding a free pizza and drink
-                # Let's assume that P1 is the default free pizza and S101 is the default free drink
-                # Or you can let the customer choose their free items
 
                 # Add free pizza
                 free_pizza_id = 'P1'  # Default free pizza ID
