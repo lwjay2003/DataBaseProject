@@ -5,7 +5,7 @@ import json
 def create_connection():
     try:
         # Load connection configuration from JSON file
-        with open('/Users/liaowenjie/PycharmProjects/DataBaseProject/utils/db_config.json', 'r') as config_file:
+        with open('/Users/zhousiyao/PycharmProjects/DataBaseProject/utils/db_config.json', 'r') as config_file:
             config = json.load(config_file)
 
         # Establish the connection

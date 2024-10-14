@@ -85,7 +85,7 @@ class Checkout:
         msg_box.setIcon(QMessageBox.Information)
         msg_box.setText("Thank you for your order! Your pizza will be ready soon.")
         msg_box.setWindowTitle("Order Confirmation")
-        msg_box.exec_()`
+        msg_box.exec_()
 
         # Add "My Order" Button
         self.my_order_button = QPushButton('MyOrder')

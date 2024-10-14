@@ -20,7 +20,7 @@ class PizzaOrderingApp(QMainWindow):
         # Set background image using style sheet
         self.setStyleSheet("""
                     QMainWindow {
-                        background-image: url('/Users/liaowenjie/PycharmProjects/DataBaseProject/pizza-7423546_1920.png');
+                        background-image: url('/Users/zhousiyao/PycharmProjects/DataBaseProject/pizza-7423546_1920.png');
                         background-repeat: no-repeat;
                         
                         background-position: center;

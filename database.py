@@ -3,30 +3,20 @@ import datetime
 
 
 class PizzaDatabase:
-    #not working # def __init__(self):
-    #     self.conn = create_connection()
-    #     self.cursor = self.conn.cursor() if self.conn else None
-    #
-    # def __del__(self):
-    #     if self.conn:
-    #         self.conn.close()
 
     def __init__(self):
-        # Ensure that self.conn is always defined, even if the connection fails
-        self.conn = create_connection()  # Try to create a connection
-        if self.conn:
-            self.cursor = self.conn.cursor()
-        else:
-            self.cursor = None  # No connection means no cursor
+        self.conn = create_connection()
+        self.cursor = self.conn.cursor()
 
     def __del__(self):
-        # Check if self.conn is defined and connected before trying to close it
-        if hasattr(self, 'conn') and self.conn and self.conn.is_connected():
+        if self.conn:
             try:
-                self.conn.close()
-                print("Database connection closed.")
+                if self.conn.is_connected():
+                    self.cursor.close()
+                    self.conn.close()
+                    print("Connection closed.")
             except Exception as e:
-                print(f"Error closing connection: {e}")
+                print(f"Error during connection cleanup: {e}")
 
     def get_pizza(self, pizza_id):
         self.cursor.execute("""
@@ -794,7 +784,7 @@ class PizzaDatabase:
 
     def assign_delivery_person2(self):
         """
-        for handle group order, may not be the most efficient and elegant one but it works
+        for handle group order, may not be the most efficient and elegant one, but it works
         """
         try:
             cutoff_time = datetime.datetime.now() - datetime.timedelta(minutes=3)
@@ -929,19 +919,26 @@ class PizzaDatabase:
             first_day = today.replace(day=1)
             last_day = (first_day + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
 
-            # Build the base query for pizzas
+
             query = """
                 SELECT
                     oi.order_id,
-                    SUM((i.price * 1.40 * 1.09) * otp.quantity) AS pizza_total_price,
-                    SUM(otp.quantity) AS pizza_quantity
+                    SUM(pizza_price * otp.quantity) AS total_price,
+                    SUM(otp.quantity) AS total_quantity
                 FROM order_info oi
                 JOIN customer c ON oi.customer_id = c.customer_id
                 JOIN order_to_pizza otp ON oi.order_id = otp.order_id
-                JOIN pizza p ON otp.pizza_id = p.pizza_id
-                JOIN pizza_to_ingredient pi ON p.pizza_id = pi.pizza_id
-                JOIN ingredient i ON pi.ingredient_id = i.ingredient_id
+                -- Subquery to calculate the total price of each pizza based on its ingredients
+                JOIN (
+                    SELECT
+                        pi.pizza_id,
+                        SUM(i.price * 1.40 * 1.09) AS pizza_price
+                    FROM pizza_to_ingredient pi
+                    JOIN ingredient i ON pi.ingredient_id = i.ingredient_id
+                    GROUP BY pi.pizza_id
+                ) AS pizza_prices ON otp.pizza_id = pizza_prices.pizza_id
                 WHERE oi.time BETWEEN %s AND %s
+                GROUP BY oi.order_id
             """
 
             params = [first_day, last_day]
@@ -962,11 +959,11 @@ class PizzaDatabase:
                 query += " AND c.birthday BETWEEN %s AND %s"
                 params.extend([birthdate_min, birthdate_max])
 
-            query += " GROUP BY oi.order_id"
 
             # Execute the query
             self.cursor.execute(query, tuple(params))
             pizza_orders = self.cursor.fetchall()
+            print(pizza_orders)
 
             # Now, get side dishes
             query_sidedish = """
@@ -1016,6 +1013,7 @@ class PizzaDatabase:
                 order_id = order[0]
                 pizza_total_price = order[1] if order[1] is not None else 0.0
                 pizza_quantity = order[2] if order[2] is not None else 0
+
 
                 total_earnings += pizza_total_price
                 pizza_count += pizza_quantity
