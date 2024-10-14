@@ -20,7 +20,7 @@ class PizzaOrderingApp(QMainWindow):
         # Set background image using style sheet
         self.setStyleSheet("""
                     QMainWindow {
-                        background-image: url('/Users/zhousiyao/PycharmProjects/DataBaseProject/pizza-7423546_1920.png');
+                        background-image: url('/Users/zhousiyao/PycharmProjects/DataBaseProject/images/pizza-7423546_1920.png');
                         background-repeat: no-repeat;
                         
                         background-position: center;
@@ -37,7 +37,7 @@ class PizzaOrderingApp(QMainWindow):
 
         # Pizza image - Centered at the top
         self.pizza_image = QLabel(self)
-        pixmap = QPixmap('/Iconarchive-Fat-Sugar-Food-Pizza.512.png')
+        pixmap = QPixmap('images/Iconarchive-Fat-Sugar-Food-Pizza.512.png')
         #adjust the size of the image
         pixmap = pixmap.scaled(150, 150, Qt.KeepAspectRatio)
         self.pizza_image.setPixmap(pixmap)
