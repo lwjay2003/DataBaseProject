@@ -666,8 +666,8 @@ class PizzaDatabase:
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
         try:
-            # Create a new customer with default accumulation of 1
-            self.cursor.execute(query, (name, gender, birthday, address, postcode, phone, 1))
+            # Create a new customer with default accumulation of 0
+            self.cursor.execute(query, (name, gender, birthday, address, postcode, phone, 0))
             self.conn.commit()
 
             # Fetch the newly created customer_id
@@ -905,6 +905,7 @@ class PizzaDatabase:
         print(f"Orders {', '.join(map(str, order_ids))} have been assigned to delivery person {delivery_person_id}.")
         return True
 
+
     def generate_monthly_earnings_report(self, filters):
         """
         Generate a monthly earnings report with optional filters.
@@ -919,10 +920,9 @@ class PizzaDatabase:
             first_day = today.replace(day=1)
             last_day = (first_day + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
 
-
+            # Pizza earnings query
             query = """
                 SELECT
-                    oi.order_id,
                     SUM(pizza_price * otp.quantity) AS total_price,
                     SUM(otp.quantity) AS total_quantity
                 FROM order_info oi
@@ -938,7 +938,6 @@ class PizzaDatabase:
                     GROUP BY pi.pizza_id
                 ) AS pizza_prices ON otp.pizza_id = pizza_prices.pizza_id
                 WHERE oi.time BETWEEN %s AND %s
-                GROUP BY oi.order_id
             """
 
             params = [first_day, last_day]
@@ -959,16 +958,16 @@ class PizzaDatabase:
                 query += " AND c.birthday BETWEEN %s AND %s"
                 params.extend([birthdate_min, birthdate_max])
 
+            # Group by aggregated values
+            query += " GROUP BY oi.order_id"
 
             # Execute the query
             self.cursor.execute(query, tuple(params))
             pizza_orders = self.cursor.fetchall()
-            print(pizza_orders)
 
             # Now, get side dishes
             query_sidedish = """
                 SELECT
-                    oi.order_id,
                     SUM(sd.price * otd.quantity) AS sidedish_total_price,
                     SUM(otd.quantity) AS sidedish_quantity
                 FROM order_info oi
@@ -990,9 +989,6 @@ class PizzaDatabase:
                 params_sidedish.append(filters['gender'])
 
             if 'age_min' in filters and 'age_max' in filters:
-                today = datetime.date.today()
-                birthdate_min = today.replace(year=today.year - filters['age_max'])
-                birthdate_max = today.replace(year=today.year - filters['age_min'])
                 query_sidedish += " AND c.birthday BETWEEN %s AND %s"
                 params_sidedish.extend([birthdate_min, birthdate_max])
 
@@ -1010,28 +1006,23 @@ class PizzaDatabase:
 
             # Process pizza orders
             for order in pizza_orders:
-                order_id = order[0]
-                pizza_total_price = order[1] if order[1] is not None else 0.0
-                pizza_quantity = order[2] if order[2] is not None else 0
-
+                pizza_total_price = order[0] if order[0] is not None else 0.0
+                pizza_quantity = order[1] if order[1] is not None else 0
 
                 total_earnings += pizza_total_price
                 pizza_count += pizza_quantity
-                orders.add(order_id)
 
             # Process sidedish orders
             for order in sidedish_orders:
-                order_id = order[0]
-                sidedish_total_price = order[1] if order[1] is not None else 0.0
-                sidedish_quantity = order[2] if order[2] is not None else 0
+                sidedish_total_price = order[0] if order[0] is not None else 0.0
+                sidedish_quantity = order[1] if order[1] is not None else 0
 
                 total_earnings += sidedish_total_price
                 sidedish_count += sidedish_quantity
-                orders.add(order_id)
 
             report = {
                 'total_earnings': total_earnings,
-                'order_count': len(orders),
+                'order_count': len(pizza_orders) + len(sidedish_orders),
                 'pizza_count': pizza_count,
                 'sidedish_count': sidedish_count
             }
@@ -1041,4 +1032,5 @@ class PizzaDatabase:
         except Exception as e:
             print(f"Error generating earnings report: {e}")
             return None
+
 

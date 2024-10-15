@@ -105,21 +105,37 @@ def setup_customer(db):
 def cancel_order(db, order_id):
     db.cancel_order(order_id)
 
-def check_coupon(db, customer_id):
+
+def check_coupon(db, customer_id, pizzas_ordered):
     """
     Automatically apply a 10% discount if the customer has accumulated 10 or more pizzas.
+    Update the accumulation with the current order's pizzas.
     """
     # Get the customer's current accumulation
     accumulation = db.get_customer_accumulation(customer_id)
-    if accumulation >= 10:
+    print(f"Current accumulation: {accumulation}")
+
+    # Add the number of pizzas ordered in the current order
+    total_pizzas_ordered = sum(pizzas_ordered.values())
+    print(f"Pizzas ordered in this order: {total_pizzas_ordered}")
+
+    new_accumulation = accumulation + total_pizzas_ordered
+    print(f"New accumulation (including this order): {new_accumulation}")
+
+    # Check if the customer has earned a discount
+    if new_accumulation >= 10:
         print("- You have ordered 10 or more pizzas! A 10% discount has been applied to your order.")
-        # Reset accumulation by subtracting 10
-        db.reset_customer_accumulation(customer_id, accumulation - 10)
+
+        # Apply the discount and reset the accumulation
+        pizzas_to_reset = new_accumulation - 10
+        db.reset_customer_accumulation(customer_id, pizzas_to_reset)
         return 0.9  # Apply 10% discount
     else:
-        pizzas_needed = 10 - accumulation
+        pizzas_needed = 10 - new_accumulation
         print(f"- You need {pizzas_needed} more pizza(s) to earn a 10% discount on your next order.")
+
     return 1.0  # No discount
+
 
 def is_customer_birthday(customer):
     """
@@ -145,6 +161,7 @@ def is_customer_birthday(customer):
         return False
 
 
+
 def show_order(db, pizzas, sidedishes, discount, birthday_offer_applied=False):
     total_price = 0.0
     menu_items = db.get_menu_items()
@@ -152,34 +169,37 @@ def show_order(db, pizzas, sidedishes, discount, birthday_offer_applied=False):
     sidedishes_dict = {f"S{sd['id']}": sd for sd in menu_items['sidedishes']}
 
     print("Your order details:")
+
+    # Process pizzas
     for id, qty in pizzas.items():
         pizza = pizzas_dict[id]
         price_per_item = pizza['price']
         total_item_price = price_per_item * qty
 
-        # Adjust price if birthday offer is applied
-        if birthday_offer_applied and qty > 0:
-            # Assuming the first pizza is free
+        # Check if birthday offer applies specifically to P1
+        if birthday_offer_applied and id == "P1" and qty > 0:
+            # Apply the offer only to pizza P1 and make it free
             qty_to_charge = qty - 1 if qty > 0 else 0
             total_item_price = price_per_item * qty_to_charge
             total_price += total_item_price
-            print(f"- Pizza {pizza['name']} x {qty} (1 free) @ €{price_per_item:.2f} each = €{total_item_price:.2f}")
+            print(f"- Pizza {pizza['name']} x {qty} (P1 free) @ €{price_per_item:.2f} each = €{total_item_price:.2f}")
         else:
             total_price += total_item_price
             print(f"- Pizza {pizza['name']} x {qty} @ €{price_per_item:.2f} each = €{total_item_price:.2f}")
 
+    # Process side dishes
     for id, qty in sidedishes.items():
         sd = sidedishes_dict[id]
         price_per_item = sd['price']
         total_item_price = price_per_item * qty
 
-        # Adjust price if birthday offer is applied
-        if birthday_offer_applied and qty > 0:
-            # Assuming the first side dish is free
+        # Check if birthday offer applies specifically to S1
+        if birthday_offer_applied and id == "S1" and qty > 0:
+            # Apply the offer only to side dish S1 and make it free
             qty_to_charge = qty - 1 if qty > 0 else 0
             total_item_price = price_per_item * qty_to_charge
             total_price += total_item_price
-            print(f"- Side Dish {sd['name']} x {qty} (1 free) @ €{price_per_item:.2f} each = €{total_item_price:.2f}")
+            print(f"- Side Dish {sd['name']} x {qty} (S1 free) @ €{price_per_item:.2f} each = €{total_item_price:.2f}")
         else:
             total_price += total_item_price
             print(f"- Side Dish {sd['name']} x {qty} @ €{price_per_item:.2f} each = €{total_item_price:.2f}")
@@ -255,6 +275,7 @@ if __name__ == "__main__":
                 for sd in menu_items['sidedishes']:
                     print("{:<5} {:<25} €{:<9.2f}".format(f"S{sd['id']}", sd['name'], sd['price']))
 
+
             elif command == "order":
                 if not args:
                     print("Please specify items to order.")
@@ -274,25 +295,22 @@ if __name__ == "__main__":
                     birthday_offer_applied = True
 
                     # Apply the offer by adding a free pizza and drink
-
-                    # Add free pizza
                     free_pizza_id = 'P1'  # Default free pizza ID
                     if free_pizza_id in pizzas:
                         pizzas[free_pizza_id] += 1
                     else:
                         pizzas[free_pizza_id] = 1
 
-                    # Add free drink (assuming drinks are side dishes with IDs starting with 'S')
                     free_drink_id = 'S1'  # Default free drink ID
                     if free_drink_id in sidedishes:
                         sidedishes[free_drink_id] += 1
                     else:
                         sidedishes[free_drink_id] = 1
 
-                # Check for coupon
-                discount = check_coupon(db, customer_id)
+                # Check for coupon (pass the pizzas for current order to check_coupon)
+                discount = check_coupon(db, customer_id, pizzas)
+
                 # Place order
-                # Convert item IDs back to numerical IDs
                 pizzas_numeric = {id[1:]: qty for id, qty in pizzas.items()}
                 sidedishes_numeric = {id[1:]: qty for id, qty in sidedishes.items()}
                 order_id = db.place_order(customer_id, pizzas_numeric, sidedishes_numeric)
@@ -303,15 +321,10 @@ if __name__ == "__main__":
                     show_order(db, pizzas, sidedishes, discount, birthday_offer_applied)
                     print("+-----------------------------------------------------------+")
                     estimated_delivery_time = datetime.datetime.now() + datetime.timedelta(minutes=30)
-                    # Display estimated delivery time
-                    print(f"- Yours estimated delivery time: {estimated_delivery_time.strftime('%Y-%m-%d %H:%M')}")
-                    # Assign delivery person
-                    #if db.assign_delivery_person(order_id):
-                        #print("- Your order has been assigned to a delivery person.")
-                    #else:
-                        #print("- We couldn't assign a delivery person at this time.")
+                    print(f"- Your estimated delivery time: {estimated_delivery_time.strftime('%Y-%m-%d %H:%M')}")
                 else:
                     print("Error placing order.")
+
             elif command == "cancel":
                 for order_id in args:
                     cancel_order(db, order_id)
@@ -360,14 +373,12 @@ if __name__ == "__main__":
                 else:
                     print("No delivery person information available.")
 
-            elif command == "assign deliveries":
-                if len(args) >= 1 and args[0] == "deliveries":
-                    if db.assign_delivery_person2():
-                        print("Pending deliveries have been assigned.")
-                    else:
-                        print("Failed to assign deliveries.")
+
+            elif command == "assign" and len(args) >= 1 and args[0] == "deliveries":
+                if db.assign_delivery_person2():
+                    print("Pending deliveries have been assigned.")
                 else:
-                    print("Unknown assign command. Use 'assign deliveries' to assign pending orders.")
+                    print("Failed to assign deliveries.")
             elif command.lower() == "report":
                 filters = {}
                 # Prompt for filters
